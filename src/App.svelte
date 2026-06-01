@@ -1,25 +1,19 @@
 <script lang="ts">
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { convert, type Format, type OcrMode } from "./lib/convert";
+  import Dropzone from "./lib/components/Dropzone.svelte";
+  import Controls from "./lib/components/Controls.svelte";
+  import ProgressLog from "./lib/components/ProgressLog.svelte";
+  import Toast from "./lib/components/Toast.svelte";
 
   let inputPath = $state<string | null>(null);
   let format = $state<Format>("md");
   let ocr = $state<OcrMode>("auto");
   let serveUrl = $state("");
   let doclingBin = $state("");
-  let showAdvanced = $state(false);
   let busy = $state(false);
   let phases = $state<string[]>([]);
   let toast = $state<{ kind: "ok" | "err"; msg: string } | null>(null);
-
-  const FORMATS: { v: Format; label: string }[] = [
-    { v: "md", label: "Markdown" },
-    { v: "html", label: "HTML" },
-    { v: "json", label: "JSON" },
-    { v: "tex", label: "LaTeX" },
-    { v: "docx", label: "Word (.docx)" },
-    { v: "pdf", label: "PDF" },
-  ];
 
   const baseName = $derived(
     inputPath ? inputPath.split(/[\\/]/).pop()!.replace(/\.pdf$/i, "") : "document",
@@ -94,62 +88,16 @@
     <p class="sub">PDF → Markdown · HTML · JSON · LaTeX · Word · PDF — OCR built in (Docling)</p>
   </header>
 
-  <button class="drop" class:has={inputPath} onclick={pick} disabled={busy}>
-    {#if inputPath}
-      <strong>{baseName}.pdf</strong>
-      <span class="path">{inputPath}</span>
-    {:else}
-      <strong>Choose a PDF…</strong>
-      <span>Click to select a document</span>
-    {/if}
-  </button>
+  <Dropzone {inputPath} {busy} onpick={pick} />
 
-  <div class="row">
-    <label>
-      Format
-      <select bind:value={format} disabled={busy}>
-        {#each FORMATS as f}<option value={f.v}>{f.label}</option>{/each}
-      </select>
-    </label>
-    <label>
-      OCR
-      <select bind:value={ocr} disabled={busy}>
-        <option value="auto">Auto</option>
-        <option value="force">Force</option>
-        <option value="off">Off</option>
-      </select>
-    </label>
-  </div>
-
-  <button class="linkbtn" onclick={() => (showAdvanced = !showAdvanced)}>
-    {showAdvanced ? "Hide advanced" : "Advanced"}
-  </button>
-  {#if showAdvanced}
-    <div class="adv">
-      <label>
-        Docling server URL (homelab)
-        <input placeholder="http://homelab:5001" bind:value={serveUrl} />
-      </label>
-      <label>
-        Local docling binary
-        <input placeholder="/path/to/.venv/bin/docling" bind:value={doclingBin} />
-      </label>
-    </div>
-  {/if}
+  <Controls bind:format bind:ocr bind:serveUrl bind:doclingBin {busy} />
 
   <button class="go" disabled={!inputPath || busy} onclick={run}>
     {busy ? "Converting…" : `Convert to ${format.toUpperCase()}`}
   </button>
 
-  {#if phases.length}
-    <ul class="phases">
-      {#each phases as p}<li>{p}</li>{/each}
-    </ul>
-  {/if}
-
-  {#if toast}
-    <div class="toast {toast.kind}">{toast.msg}</div>
-  {/if}
+  <ProgressLog {phases} />
+  <Toast {toast} />
 </main>
 
 <style>
@@ -175,84 +123,6 @@
     color: var(--muted);
     font-size: 0.9rem;
   }
-  .drop {
-    appearance: none;
-    border: 1.5px dashed var(--border);
-    background: var(--bg-2);
-    color: var(--text);
-    border-radius: 14px;
-    padding: 28px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
-    text-align: left;
-  }
-  .drop:hover:not(:disabled) {
-    border-color: var(--accent);
-  }
-  .drop.has {
-    border-style: solid;
-    border-color: var(--accent-2);
-  }
-  .drop strong {
-    font-size: 1.05rem;
-  }
-  .drop span {
-    color: var(--muted);
-    font-size: 0.82rem;
-  }
-  .drop .path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 0.8rem;
-    color: var(--muted);
-  }
-  select,
-  input {
-    background: var(--card);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 10px 12px;
-    font-size: 0.95rem;
-  }
-  select:focus,
-  input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-  .linkbtn {
-    appearance: none;
-    background: none;
-    border: none;
-    color: var(--accent);
-    cursor: pointer;
-    font-size: 0.82rem;
-    width: fit-content;
-    padding: 0;
-  }
-  .adv {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 14px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-  }
   .go {
     appearance: none;
     border: none;
@@ -272,34 +142,5 @@
   .go:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-  .phases {
-    list-style: none;
-    margin: 0;
-    padding: 12px 14px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-    font-size: 0.82rem;
-    color: var(--muted);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .toast {
-    border-radius: 11px;
-    padding: 12px 14px;
-    font-size: 0.9rem;
-    word-break: break-all;
-  }
-  .toast.ok {
-    background: rgba(63, 185, 80, 0.12);
-    border: 1px solid var(--ok);
-    color: #8be0a0;
-  }
-  .toast.err {
-    background: rgba(248, 81, 73, 0.12);
-    border: 1px solid var(--err);
-    color: #ff9b95;
   }
 </style>

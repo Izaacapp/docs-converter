@@ -21,15 +21,22 @@ Upload a PDF and convert it to **Markdown, HTML, JSON, LaTeX, Word (.docx), or P
 
 ```
 docs-converter/
-├── src/                     Svelte 5 frontend (App.svelte, lib/convert.ts)
-├── src-tauri/               Tauri 2 shell (externalBin: binaries/doc-convert)
-│   ├── binaries/            doc-convert-<triple> (built locally; gitignored)
-│   └── capabilities/        shell:allow-execute for the sidecar
+├── src/                          Svelte 5 frontend
+│   ├── App.svelte
+│   └── lib/
+│       ├── convert.ts            sidecar bridge (Command.sidecar)
+│       └── components/           Dropzone · Controls · ProgressLog · Toast
+├── src-tauri/                    Tauri 2 shell (externalBin: binaries/doc-convert)
+│   ├── binaries/                 doc-convert-<triple> (built locally; gitignored)
+│   ├── capabilities/             shell:allow-execute for the sidecar
+│   └── icons/                    generated from cat-icon.png
 ├── server/sidecars/
-│   └── doc-convert/         the Rust sidecar (Docling + pandoc orchestrator)
-└── scripts/
-    ├── build-sidecar.sh     cargo build --release → src-tauri/binaries/
-    └── ctx7.sh              fetch library docs via context7 (uses .env key)
+│   └── doc-convert/              the Rust sidecar (Docling + pandoc orchestrator)
+├── scripts/
+│   ├── build-sidecar.sh          cargo build --release → src-tauri/binaries/
+│   └── ctx7.sh                   fetch library docs via context7 (uses .env key)
+├── .mcp.json                     project Context7 MCP server (reads .env key)
+└── .envrc                        direnv: loads .env (CONTEXT7_API_KEY, DOCLING_*)
 ```
 
 ## Setup
