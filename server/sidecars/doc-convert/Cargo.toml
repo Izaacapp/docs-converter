@@ -1,0 +1,28 @@
+[package]
+name = "doc-convert-sidecar"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Thin orchestrator: PDF -> Docling (md/html/json, OCR built in) -> pandoc for docx/tex/pdf."
+
+# The sidecar does NOT hand-roll PDF parsing or OCR. The 2026 engine is
+# Docling — either a remote `docling-serve` instance (the homelab, set via
+# DOCLING_SERVE_URL) or the local `docling` CLI. Docling handles OCR, table
+# structure and reading order. pandoc only runs the Markdown->{docx,tex,pdf}
+# leg; a LaTeX engine (xelatex by default) renders pdf.
+#
+# Mirrors Cupids-Sniper/server/sidecars/pdf-extract conventions: payload to
+# stdout, progress/diagnostics to stderr, typed exit codes, subprocess-tested.
+#
+# Build:  cargo build --release --manifest-path Cargo.toml  ->  target/release/doc-convert
+
+[[bin]]
+name = "doc-convert"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+unicode-normalization = "0.1"
+tempfile = "3"
+which = "6"

@@ -1,0 +1,20 @@
+# deps & build output
+node_modules/
+dist/
+.svelte-kit/
+
+# rust / tauri
+**/target/
+src-tauri/gen/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+# python (docling dev venv)
+.venv/
+
+# secrets & local
+.env
+*.log
+
+# os
+.DS_Store

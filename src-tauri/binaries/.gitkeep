@@ -1,0 +1,2 @@
+# Built sidecars (doc-convert-<target-triple>) land here via scripts/build-sidecar.sh.
+# The binaries themselves are gitignored (platform-specific).

@@ -1,0 +1,15 @@
+language: rust
+tags: ['rust', 'sidecar']
+
+# Mirrors Cupids-Sniper/server/sidecars/pdf-extract: clippy-as-gate + a
+# release-mode subprocess test suite. `oxide` is opt-in, so default lint
+# does not require the pdf_oxide dependency tree.
+tasks:
+  lint:
+    command: 'cargo clippy --all-targets -- -D warnings'
+    options:
+      runInCI: true
+  test:
+    command: 'cargo test --release'
+    options:
+      runInCI: true
