@@ -1,25 +1,29 @@
 <script lang="ts">
   interface Props {
-    inputPath: string | null;
+    fileName: string | null;
     busy?: boolean;
-    onpick: () => void;
+    onpick: (f: File) => void;
   }
-  let { inputPath, busy = false, onpick }: Props = $props();
+  let { fileName, busy = false, onpick }: Props = $props();
 
-  const baseName = $derived(
-    inputPath ? inputPath.split(/[\\/]/).pop()!.replace(/\.pdf$/i, "") : "",
-  );
+  let input = $state<HTMLInputElement>();
+
+  function change(e: Event) {
+    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (f) onpick(f);
+  }
 </script>
 
-<button class="drop" class:has={!!inputPath} onclick={onpick} disabled={busy}>
-  {#if inputPath}
-    <strong>{baseName}.pdf</strong>
-    <span class="path">{inputPath}</span>
+<button type="button" class="drop" class:has={!!fileName} onclick={() => input?.click()} disabled={busy}>
+  {#if fileName}
+    <strong>{fileName}</strong>
+    <span>Click to choose another</span>
   {:else}
     <strong>Choose a PDF…</strong>
     <span>Click to select a document</span>
   {/if}
 </button>
+<input bind:this={input} type="file" accept=".pdf,application/pdf" onchange={change} hidden />
 
 <style>
   .drop {
@@ -33,7 +37,7 @@
     flex-direction: column;
     gap: 6px;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color 0.15s;
     text-align: left;
     width: 100%;
   }
@@ -46,14 +50,12 @@
   }
   .drop strong {
     font-size: 1.05rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .drop span {
     color: var(--muted);
     font-size: 0.82rem;
-  }
-  .drop .path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

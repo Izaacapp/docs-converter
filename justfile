@@ -3,6 +3,11 @@
 set dotenv-load := true
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
+# put nvm's node bin (where corepack's pnpm lives) on PATH for every recipe,
+# since `just` runs a non-login shell that doesn't load nvm.
+node_bin := `ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | tail -1`
+export PATH := if node_bin == "" { env_var('PATH') } else { node_bin + ":" + env_var('PATH') }
+
 # list tasks
 _default:
     @just --list
@@ -11,16 +16,16 @@ _default:
 install:
     pnpm install
 
-# build the Rust sidecar -> src-tauri/binaries (the app's client binary)
+# build the doc-convert binary (the server service / CLI) locally
 sidecar:
     bash scripts/build-sidecar.sh
 
-# run the desktop app (dev)
-dev: sidecar
+# run the desktop app (a thin HTTP client to the server)
+dev:
     pnpm tauri dev
 
 # build the distributable desktop bundle
-build: sidecar
+build:
     pnpm tauri build
 
 # build just the frontend (-> .artifacts/frontend)

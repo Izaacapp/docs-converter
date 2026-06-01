@@ -1,45 +1,41 @@
-import { Command } from "@tauri-apps/plugin-shell";
+import { fetch } from "@tauri-apps/plugin-http";
 
 export type Format = "md" | "html" | "tex" | "docx" | "pdf";
 
-export interface ConvertOpts {
-  input: string;
-  to: Format;
-  output: string;
-  onPhase?: (line: string) => void;
-}
+const API = (import.meta.env.VITE_CONVERTER_API_URL ?? "").replace(/\/$/, "");
 
 export interface ConvertResult {
-  code: number;
-  stderr: string;
+  ok: boolean;
+  data?: Uint8Array;
+  error?: string;
 }
 
-// The converter runs on the server; the bundled sidecar just forwards to it.
-const API_URL = import.meta.env.VITE_CONVERTER_API_URL ?? "";
+export function serverUrl(): string {
+  return API;
+}
 
 /**
- * Invoke the bundled `doc-convert` sidecar in client mode: it POSTs the PDF to
- * the converter server (VITE_CONVERTER_API_URL) and writes the result to
- * `output`. No conversion happens on this machine. Progress phases arrive on
- * stderr as `>> phase=…`.
+ * POST the PDF to the converter server and return the converted bytes. The
+ * server (pdf_oxide + pandoc) does all the work; nothing runs on this machine.
  */
-export async function convert(opts: ConvertOpts): Promise<ConvertResult> {
-  const args = ["-i", opts.input, "-t", opts.to, "-o", opts.output];
-  if (API_URL) args.push("--api-url", API_URL);
+export async function convert(to: Format, pdf: ArrayBuffer): Promise<ConvertResult> {
+  if (!API) return { ok: false, error: "VITE_CONVERTER_API_URL is not set (see .env)" };
 
-  const cmd = Command.sidecar("binaries/doc-convert", args);
-
-  let stderr = "";
-  cmd.stderr.on("data", (line: string) => {
-    stderr += line;
-    if (opts.onPhase) {
-      for (const l of line.split("\n")) {
-        const t = l.trim();
-        if (t.startsWith(">>")) opts.onPhase(t);
-      }
-    }
-  });
-
-  const child = await cmd.execute();
-  return { code: child.code ?? -1, stderr };
+  const url = `${API}/convert?to=${to}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdf,
+    });
+  } catch (e) {
+    return { ok: false, error: `cannot reach ${API} — is the server up? (${e})` };
+  }
+  if (!res.ok) {
+    const msg = await res.text().catch(() => "");
+    return { ok: false, error: `server error ${res.status}: ${msg || res.statusText}` };
+  }
+  const buf = await res.arrayBuffer();
+  return { ok: true, data: new Uint8Array(buf) };
 }

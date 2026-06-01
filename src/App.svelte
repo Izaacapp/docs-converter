@@ -1,97 +1,65 @@
 <script lang="ts">
-  import { open, save } from "@tauri-apps/plugin-dialog";
-  import { convert, type Format } from "./lib/convert";
+  import { save } from "@tauri-apps/plugin-dialog";
+  import { writeFile } from "@tauri-apps/plugin-fs";
+  import { convert, serverUrl, type Format } from "./lib/convert";
   import Dropzone from "./lib/components/Dropzone.svelte";
   import Controls from "./lib/components/Controls.svelte";
-  import ProgressLog from "./lib/components/ProgressLog.svelte";
   import Toast from "./lib/components/Toast.svelte";
 
-  let inputPath = $state<string | null>(null);
+  let file = $state<File | null>(null);
   let format = $state<Format>("md");
   let busy = $state(false);
-  let phases = $state<string[]>([]);
   let toast = $state<{ kind: "ok" | "err"; msg: string } | null>(null);
 
-  const baseName = $derived(
-    inputPath ? inputPath.split(/[\\/]/).pop()!.replace(/\.pdf$/i, "") : "document",
-  );
+  const baseName = $derived(file ? file.name.replace(/\.pdf$/i, "") : "document");
 
-  async function pick() {
-    const sel = await open({
-      multiple: false,
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
-    });
-    if (typeof sel === "string") {
-      inputPath = sel;
-      toast = null;
-    }
+  function onpick(f: File) {
+    file = f;
+    toast = null;
   }
 
   async function run() {
-    if (!inputPath) return;
-    const out = await save({ defaultPath: `${baseName}.${format}` });
-    if (!out) return;
-
+    if (!file) return;
     busy = true;
-    phases = [];
     toast = null;
     try {
-      const res = await convert({
-        input: inputPath,
-        to: format,
-        output: out,
-        onPhase: (l) => (phases = [...phases, prettyPhase(l)]),
-      });
-      toast =
-        res.code === 0
-          ? { kind: "ok", msg: `Saved → ${out}` }
-          : { kind: "err", msg: explain(res.code, res.stderr) };
+      const pdf = await file.arrayBuffer();
+      const r = await convert(format, pdf);
+      if (!r.ok) {
+        toast = { kind: "err", msg: r.error! };
+        return;
+      }
+      const out = await save({ defaultPath: `${baseName}.${format}` });
+      if (!out) return;
+      await writeFile(out, r.data!);
+      toast = { kind: "ok", msg: `Saved → ${out}` };
     } catch (e) {
       toast = { kind: "err", msg: String(e) };
     } finally {
       busy = false;
     }
   }
-
-  function prettyPhase(line: string): string {
-    if (line.includes("via=server")) return "Converting on the server…";
-    if (line.includes("phase=extract")) return "Extracting…";
-    if (line.includes("phase=convert")) return `Converting → ${format.toUpperCase()}…`;
-    if (line.includes("done")) return "Done.";
-    return line.replace(/^>>\s*/, "");
-  }
-
-  function explain(code: number, stderr: string): string {
-    const last = stderr
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith("doc-convert:"))
-      .pop();
-    const hints: Record<number, string> = {
-      1: "Could not read that PDF.",
-      4: "curl is missing, or the converter server is unreachable.",
-      5: "Conversion failed on the server (pandoc/LaTeX).",
-      64: "Bad options.",
-    };
-    return last?.replace("doc-convert:", "").trim() || hints[code] || `Failed (exit ${code}).`;
-  }
 </script>
 
 <main>
   <header>
     <h1>docs-converter</h1>
-    <p class="sub">PDF → Markdown · HTML · JSON · LaTeX · Word · PDF — OCR built in (Docling)</p>
+    <p class="sub">PDF → Markdown · HTML · LaTeX · Word · PDF — converted on the server</p>
   </header>
 
-  <Dropzone {inputPath} {busy} onpick={pick} />
-
+  <Dropzone fileName={file?.name ?? null} {busy} {onpick} />
   <Controls bind:format {busy} />
 
-  <button class="go" disabled={!inputPath || busy} onclick={run}>
-    {busy ? "Converting…" : `Convert to ${format.toUpperCase()}`}
+  <button class="go" disabled={!file || busy} onclick={run}>
+    {busy ? "Converting on the server…" : `Convert to ${format.toUpperCase()}`}
   </button>
 
-  <ProgressLog {phases} />
+  {#if serverUrl()}
+    <p class="server">server · {serverUrl()}</p>
+  {:else}
+    <p class="server warn">Set VITE_CONVERTER_API_URL in .env</p>
+  {/if}
+
   <Toast {toast} />
 </main>
 
@@ -137,5 +105,13 @@
   .go:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .server {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .server.warn {
+    color: #ff9b95;
   }
 </style>
