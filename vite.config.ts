@@ -7,6 +7,11 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
+  // Keep frontend build output under .artifacts/ (Tauri reads it from there).
+  build: {
+    outDir: ".artifacts/frontend",
+    emptyOutDir: true,
+  },
   server: {
     port: 1420,
     strictPort: true,

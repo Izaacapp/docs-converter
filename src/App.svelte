@@ -1,6 +1,6 @@
 <script lang="ts">
   import { open, save } from "@tauri-apps/plugin-dialog";
-  import { convert, type Format, type OcrMode } from "./lib/convert";
+  import { convert, type Format } from "./lib/convert";
   import Dropzone from "./lib/components/Dropzone.svelte";
   import Controls from "./lib/components/Controls.svelte";
   import ProgressLog from "./lib/components/ProgressLog.svelte";
@@ -8,9 +8,6 @@
 
   let inputPath = $state<string | null>(null);
   let format = $state<Format>("md");
-  let ocr = $state<OcrMode>("auto");
-  let serveUrl = $state("");
-  let doclingBin = $state("");
   let busy = $state(false);
   let phases = $state<string[]>([]);
   let toast = $state<{ kind: "ok" | "err"; msg: string } | null>(null);
@@ -43,9 +40,6 @@
         input: inputPath,
         to: format,
         output: out,
-        ocr,
-        serveUrl: serveUrl || undefined,
-        doclingBin: doclingBin || undefined,
         onPhase: (l) => (phases = [...phases, prettyPhase(l)]),
       });
       toast =
@@ -60,7 +54,8 @@
   }
 
   function prettyPhase(line: string): string {
-    if (line.includes("phase=understand")) return "Understanding document (Docling, OCR + tables)…";
+    if (line.includes("via=server")) return "Converting on the server…";
+    if (line.includes("phase=extract")) return "Extracting…";
     if (line.includes("phase=convert")) return `Converting → ${format.toUpperCase()}…`;
     if (line.includes("done")) return "Done.";
     return line.replace(/^>>\s*/, "");
@@ -74,8 +69,8 @@
       .pop();
     const hints: Record<number, string> = {
       1: "Could not read that PDF.",
-      4: "A required tool is missing — install Docling/pandoc, or set a Docling server URL under Advanced.",
-      5: "Conversion failed (pandoc/LaTeX).",
+      4: "curl is missing, or the converter server is unreachable.",
+      5: "Conversion failed on the server (pandoc/LaTeX).",
       64: "Bad options.",
     };
     return last?.replace("doc-convert:", "").trim() || hints[code] || `Failed (exit ${code}).`;
@@ -90,7 +85,7 @@
 
   <Dropzone {inputPath} {busy} onpick={pick} />
 
-  <Controls bind:format bind:ocr bind:serveUrl bind:doclingBin {busy} />
+  <Controls bind:format {busy} />
 
   <button class="go" disabled={!inputPath || busy} onclick={run}>
     {busy ? "Converting…" : `Convert to ${format.toUpperCase()}`}

@@ -1,0 +1,4 @@
+# Keep Rust build output out of the source tree — both src-tauri and the
+# sidecar compile into .artifacts/rust so the repo stays clean.
+[build]
+target-dir = ".artifacts/rust"

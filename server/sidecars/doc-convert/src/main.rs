@@ -1,19 +1,20 @@
-//! doc-convert — PDF -> md/html/json/tex/docx/pdf.
+//! doc-convert — PDF -> md/html/tex/docx/pdf.
 //!
-//! Pipeline: Docling (the engine — OCR, tables, reading order) produces the
-//! canonical intermediate (md/html/json); md/html/json are emitted directly,
-//! while tex/docx/pdf go Markdown -> pandoc (+ LaTeX engine for pdf).
+//! Two modes from one binary:
+//!   doc-convert -i in.pdf -t md -o out.md     # CLI
+//!   doc-convert serve --port 8088             # HTTP API (deployed on the server)
 //!
-//! Contract (mirrors Cupids-Sniper/server/sidecars/pdf-extract):
-//!   payload -> stdout, progress/diagnostics -> stderr, typed exit codes.
+//! pdf_oxide extracts the PDF to Markdown in-process (pure CPU, no GPU); `md` is
+//! emitted directly, html/tex/docx/pdf go Markdown -> pandoc (+ LaTeX for pdf).
 
 mod cli;
+mod client;
 mod convert;
-mod engine;
 mod error;
+mod extract;
 mod progress;
+mod serve;
 mod tools;
-mod workdir;
 
 use clap::Parser;
 use cli::Args;
@@ -23,9 +24,15 @@ use std::fs;
 use std::io::Write;
 use std::process::ExitCode;
 use std::time::Instant;
-use workdir::WorkDir;
 
 fn main() -> ExitCode {
+    // `serve` subcommand is handled before clap so the convert CLI stays flat.
+    let raw: Vec<String> = std::env::args().collect();
+    if raw.get(1).map(|s| s == "serve").unwrap_or(false) {
+        let port = parse_port(&raw).unwrap_or(8088);
+        return serve::run(port);
+    }
+
     let args = match Args::try_parse() {
         Ok(a) => a,
         Err(e) => {
@@ -45,6 +52,13 @@ fn main() -> ExitCode {
             e.exit()
         }
     }
+}
+
+fn parse_port(raw: &[String]) -> Option<u16> {
+    raw.iter()
+        .position(|a| a == "--port" || a == "-p")
+        .and_then(|i| raw.get(i + 1))
+        .and_then(|s| s.parse().ok())
 }
 
 fn run(args: &Args) -> Result<()> {
@@ -72,33 +86,26 @@ fn run(args: &Args) -> Result<()> {
         )));
     }
 
-    let work = WorkDir::new()?;
+    // Server mode: forward to the converter API; no local conversion.
+    if let Some(api) = args
+        .api_url
+        .clone()
+        .or_else(|| std::env::var("CONVERTER_API_URL").ok())
+        .filter(|s| !s.trim().is_empty())
+    {
+        return client::forward(args, &api, &rep, start);
+    }
 
-    let n = if args.to.is_native_docling() {
-        // md / html / json — straight from Docling.
-        let bytes = engine::run(&work, args, args.to.docling_format(), &rep)?;
-        emit(args, &bytes)?;
-        bytes.len()
-    } else {
-        // tex / docx / pdf — Docling Markdown, then pandoc.
-        let md_bytes = engine::run(&work, args, "md", &rep)?;
-        let md = String::from_utf8_lossy(&md_bytes).into_owned();
+    rep.phase("extract", &[("engine", "pdf_oxide")]);
+    let md = extract::to_markdown(&args.input)?;
+
+    if !matches!(args.to, cli::Target::Md) {
         rep.phase("convert", &[("target", args.to.as_str())]);
-        match convert::run(&md, args)? {
-            Some(bytes) => {
-                emit(args, &bytes)?;
-                bytes.len()
-            }
-            None => args
-                .output
-                .as_ref()
-                .and_then(|p| fs::metadata(p).ok())
-                .map(|m| m.len() as usize)
-                .unwrap_or(0),
-        }
-    };
+    }
+    let bytes = convert::to_bytes(&md, args.to, args.pdf_engine, args.standalone)?;
+    emit(args, &bytes)?;
 
-    rep.done(n, start.elapsed().as_millis());
+    rep.done(bytes.len(), start.elapsed().as_millis());
     Ok(())
 }
 

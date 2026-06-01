@@ -1,137 +1,88 @@
 # docs-converter
 
-Upload a PDF and convert it to **Markdown, HTML, JSON, LaTeX, Word (.docx), or PDF** — with **OCR built in** for scanned documents. A small [Tauri](https://v2.tauri.app) + [Svelte](https://svelte.dev) desktop app over a thin Rust **sidecar** that drives [Docling](https://github.com/docling-project/docling) (the engine) and [pandoc](https://pandoc.org).
+Upload a PDF and convert it to **Markdown, HTML, LaTeX, Word (.docx), or PDF**.
+A [Tauri](https://v2.tauri.app) + [Svelte](https://svelte.dev) desktop app over a
+small Rust converter — [`pdf_oxide`](https://crates.io/crates/pdf_oxide) +
+[pandoc](https://pandoc.org) — that runs as a tiny HTTP service **on your
+server**. One binary, three modes.
 
 ## How it works
 
 ```
- Svelte UI ──Command.sidecar──▶ doc-convert (Rust)
-                                   │
-                  ┌────────────────┴───────────────────┐
-                  ▼                                     ▼
-            Docling  ── md/html/json ──▶  (md) ──▶ pandoc ──▶ tex / docx / pdf
-        (OCR · tables · layout)                      (xelatex for pdf)
+ Svelte UI ──sidecar──▶ doc-convert (client) ──HTTP──▶ doc-convert serve ──▶ PDF
+                                                        (pdf_oxide + pandoc)
 ```
 
-- **Docling does the hard part** — OCR (RapidOCR/EasyOCR/Tesseract), table structure, reading order, layout. Runs either as a local `docling` CLI or against a remote **`docling-serve`** instance on your homelab.
-- **pandoc** only runs the Markdown → `tex`/`docx`/`pdf` leg; **xelatex** renders PDF (Unicode-safe; ligatures like `ﬁ`/`ﬂ` are NFKC-folded for `pdflatex`).
-- The **`doc-convert` sidecar** is a thin orchestrator with the classic contract: payload → stdout, progress → stderr (`>> phase=…`), typed exit codes. It is bundled into the Tauri app via `externalBin` and invoked from the frontend through `@tauri-apps/plugin-shell`.
+- Conversion runs **on the server, on the CPU** — `pdf_oxide` is ~0.8 ms/page, so
+  a 726-page book converts in ~1 s. The **GPU is never touched** (it stays free
+  for your LLM — which is exactly what ran out of VRAM when heavier ML tools
+  tried to grab it). Your laptop does no conversion at all.
+- The same `doc-convert` Rust binary runs in three modes:
+  - `doc-convert serve --port 8088` — the HTTP API (deployed on the server)
+  - `doc-convert -i in.pdf -t md --api-url http://server:8088` — forward to it
+  - `doc-convert -i in.pdf -t md` — convert locally, in-process
+- `pdf_oxide` (the fastest Rust PDF crate) extracts to Markdown; pandoc does the
+  `md → {html,tex,docx,pdf}` leg; **xelatex** renders pdf (ligatures NFKC-folded
+  so pdflatex doesn't choke).
 
-## Repository layout
+## Layout
 
 ```
 docs-converter/
-├── src/                          Svelte 5 frontend
-│   ├── App.svelte
-│   └── lib/
-│       ├── convert.ts            sidecar bridge (Command.sidecar)
-│       └── components/           Dropzone · Controls · ProgressLog · Toast
-├── src-tauri/                    Tauri 2 shell (externalBin: binaries/doc-convert)
-│   ├── binaries/                 doc-convert-<triple> (built locally; gitignored)
-│   ├── capabilities/             shell:allow-execute for the sidecar
-│   └── icons/                    generated from cat-icon.png
-├── server/sidecars/
-│   └── doc-convert/              the Rust sidecar (Docling + pandoc orchestrator)
-├── scripts/
-│   ├── build-sidecar.sh          cargo build --release → src-tauri/binaries/
-│   └── ctx7.sh                   fetch library docs via context7 (uses .env key)
-├── .mcp.json                     project Context7 MCP server (reads .env key)
-└── .envrc                        direnv: loads .env (CONTEXT7_API_KEY, DOCLING_*)
+├── src/                        Svelte 5 frontend (App + lib/components, lib/convert.ts)
+├── src-tauri/                  Tauri 2 shell (bundles the client sidecar)
+├── server/sidecars/doc-convert/  the Rust converter (CLI · client · serve)
+├── deploy/                     serve.sh / teardown.sh — run it on the server
+├── scripts/                    build-sidecar.sh · e2e.sh · ctx7.sh
+├── justfile · .mcp.json · .envrc
 ```
 
 ## Setup
 
-### 1. The Docling engine — choose one
+```bash
+cp .env.example .env     # set CONVERTER_SERVER_* + CONVERTER_API_URL, CONTEXT7_API_KEY
+just deploy              # build + run doc-convert on the server (:8088)
+just server-health       # -> ok
+just install && just dev # run the desktop app (it forwards to the server)
+```
 
-**A) Homelab (recommended).** Run `docling-serve` where your GPU + LaTeX already live, then point the app at it (Advanced → Docling server URL, or `DOCLING_SERVE_URL` in `.env`):
+`just deploy` installs Rust + pandoc on the server (once), builds the binary
+natively, and starts `doc-convert serve`. `just teardown` removes it. Needs
+`sshpass` locally.
+
+## The API
+
+```
+GET  /health                                  -> ok
+POST /convert?to=md|html|tex|docx|pdf          body = raw PDF -> converted bytes
+```
 
 ```bash
-pip install "docling-serve[ui]"
-docling-serve run --port 5001
+curl --data-binary @paper.pdf "http://your-server:8088/convert?to=docx" -o paper.docx
 ```
 
-**B) Local CLI.** Install Docling into a venv; the app finds it via `DOCLING_BIN`:
+Your other services can hit the same endpoint.
+
+## CLI / tests
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install docling
-# Apple Silicon: the sidecar runs Docling with --device cpu to avoid the MPS
-# float64 bug; a GPU box can use --device cuda.
-```
+# convert off the server
+CONVERTER_API_URL=http://your-server:8088 doc-convert -i paper.pdf -t md
+# or locally, in-process
+doc-convert -i paper.pdf -t md
 
-### 2. Format tools (for tex/docx/pdf)
-
-```bash
-brew install pandoc          # md → html/tex/docx, and md → pdf via LaTeX
-# TeX Live / MacTeX provides xelatex (PDF output)
-```
-
-### 3. App
-
-```bash
-corepack enable pnpm
-pnpm install
-pnpm build:sidecar     # builds doc-convert → src-tauri/binaries/doc-convert-<triple>
-pnpm tauri dev         # run the desktop app
-# pnpm tauri build     # produce a distributable bundle
-```
-
-Copy `.env.example` → `.env` and fill in `CONTEXT7_API_KEY`, `DOCLING_SERVE_URL` (or `DOCLING_BIN`).
-
-## The sidecar CLI
-
-The app shells out to this; it is also usable on its own:
-
-```
-doc-convert --input <PDF> --to <md|html|json|tex|docx|pdf>
-            [--ocr auto|force|off] [--ocr-lang en] [--ocr-engine easyocr]
-            [--engine auto|cli|serve] [--serve-url URL]
-            [--output PATH] [--standalone] [--pdf-engine xelatex|lualatex|pdflatex]
-            [--device cpu|cuda|mps] [--image-mode placeholder|embedded|referenced]
-            [--no-tables] [--json-progress] [-q]
-```
-
-`md`/`html`/`json` stream to stdout (or `--output`); `docx`/`pdf` require `--output`.
-
-**Exit codes:** `0` ok · `1` input unreadable · `2` Docling failed · `4` a required tool is missing (names it) · `5` pandoc/LaTeX failed · `64` usage.
-
-```bash
-# local CLI engine
-DOCLING_BIN=./.venv/bin/docling doc-convert -i paper.pdf -t md
-# homelab engine
-doc-convert -i scan.pdf -t docx -o out.docx --serve-url http://homelab:5001 --ocr force
-```
-
-## Tested against
-
-Validated end-to-end on a corpus of technical-writing books (`md/html/json/tex/docx/pdf`), including:
-
-- a 324-page digital book → 671 KB structured Markdown (Preface/section/Tip headings preserved);
-- a Type-3-font book → LaTeX with ligatures normalized (no `ﬁ`/`ﬂ`);
-- an Internet-Archive **scanned** page → real OCR text via Docling+RapidOCR.
-
-Run the sidecar's tests:
-
-```bash
-cd server/sidecars/doc-convert
-cargo test                      # fast contract tests
-DOC_CONVERT_E2E=1 DOCLING_BIN=../../../.venv/bin/docling cargo test   # + real conversions
+cd server/sidecars/doc-convert && cargo test      # in-process, fast
+just e2e                                           # the 8-book corpus, off the live server
 ```
 
 ## Docs
 
-`scripts/ctx7.sh` fetches current library docs via [context7](https://context7.com) using the key in `.env`:
+`scripts/ctx7.sh` (and the project `.mcp.json` Context7 server) fetch current
+library docs using the key in `.env`:
 
 ```bash
-scripts/ctx7.sh library "Tauri" "sidecar externalBin"
-scripts/ctx7.sh docs /docling-project/docling-serve "convert file endpoint"
+just docs library "pdf_oxide" "to_markdown"
 ```
-
-## Known limitations
-
-- First local Docling run downloads layout/OCR models (hundreds of MB).
-- CPU conversion of a long book takes minutes; use a GPU box via `docling-serve`.
-- `tex`/`docx`/`pdf` need `pandoc` (+ a LaTeX engine for `pdf`); missing tools give a clear exit-4 message.
 
 ## License
 

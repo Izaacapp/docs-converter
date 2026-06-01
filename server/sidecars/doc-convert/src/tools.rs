@@ -18,8 +18,6 @@ pub fn require(bin: &str, hint: &str) -> Result<()> {
     }
 }
 
-pub const DOCLING_HINT: &str =
-    "install docling (pip install docling) or set DOCLING_SERVE_URL to a docling-serve instance";
 pub const PANDOC_HINT: &str = "install pandoc (brew install pandoc / apt install pandoc)";
-pub const CURL_HINT: &str = "curl is required to reach docling-serve";
 pub const LATEX_HINT: &str = "install a LaTeX engine (TeX Live / MacTeX) for --to pdf";
+pub const CURL_HINT: &str = "curl is required for --api-url / server mode";

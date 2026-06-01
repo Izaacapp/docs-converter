@@ -1,16 +1,17 @@
-# deps & build output
+# build output — centralized in .artifacts/ (see .cargo/config.toml, vite.config.ts)
+.artifacts/
 node_modules/
-dist/
-.svelte-kit/
-
-# rust / tauri
 **/target/
+.svelte-kit/
 src-tauri/gen/
+
+# bundled sidecars (platform-specific; produced by scripts/build-sidecar.sh)
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 
-# python (docling dev venv)
+# python (docling dev venv) + direnv cache
 .venv/
+.direnv/
 
 # secrets & local
 .env

@@ -3,18 +3,16 @@ name = "doc-convert-sidecar"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Thin orchestrator: PDF -> Docling (md/html/json, OCR built in) -> pandoc for docx/tex/pdf."
+description = "PDF -> md/html/tex/docx/pdf — pdf_oxide in-process + pandoc. CLI and a tiny HTTP service."
 
-# The sidecar does NOT hand-roll PDF parsing or OCR. The 2026 engine is
-# Docling — either a remote `docling-serve` instance (the homelab, set via
-# DOCLING_SERVE_URL) or the local `docling` CLI. Docling handles OCR, table
-# structure and reading order. pandoc only runs the Markdown->{docx,tex,pdf}
-# leg; a LaTeX engine (xelatex by default) renders pdf.
+# One small binary, two modes:
+#   doc-convert -i in.pdf -t md -o out.md     # CLI
+#   doc-convert serve --port 8088             # HTTP API (POST /convert?to=md, body=PDF)
 #
-# Mirrors Cupids-Sniper/server/sidecars/pdf-extract conventions: payload to
-# stdout, progress/diagnostics to stderr, typed exit codes, subprocess-tested.
-#
-# Build:  cargo build --release --manifest-path Cargo.toml  ->  target/release/doc-convert
+# PDF extraction is in-process via pdf_oxide (fastest Rust PDF crate, 0.8ms/page,
+# pure CPU — no GPU, no Python). Deployed on the converter server it does the
+# work there while the GPU stays free for the LLM. pandoc handles the
+# md->{html,tex,docx,pdf} leg.
 
 [[bin]]
 name = "doc-convert"
@@ -22,7 +20,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-serde_json = "1"
+pdf_oxide = "0.3"
 unicode-normalization = "0.1"
-tempfile = "3"
 which = "6"
+tiny_http = "0.12"
+tempfile = "3"
