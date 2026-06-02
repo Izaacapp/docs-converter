@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Upload a PDF and convert it to Markdown/HTML/JSON/LaTeX/DOCX/PDF with OCR (Docling) — Tauri + Svelte.",
+  "description": "Upload a PDF and convert it to Markdown/HTML/LaTeX/DOCX/PDF — Tauri + Svelte client to a lightweight Rust (pdf_oxide) + pandoc server.",
   "scripts": {
     "dev": "vite",
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",

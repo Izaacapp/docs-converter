@@ -9,7 +9,7 @@ src-tauri/gen/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 
-# python (docling dev venv) + direnv cache
+# python venv + direnv cache
 .venv/
 .direnv/
 

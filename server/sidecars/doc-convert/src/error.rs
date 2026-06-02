@@ -3,8 +3,8 @@
 //! Exit codes (superset of pdf-extract's 0/1/2; never reused):
 //!   0   success
 //!   1   input missing/unreadable        (pdf-extract parity)
-//!   2   document understanding (Docling) failed
-//!   4   a required external tool is missing (docling / curl / pandoc / LaTeX)
+//!   2   PDF extraction/parse failed (pdf_oxide)
+//!   4   a required external tool is missing (pandoc / a LaTeX engine / curl)
 //!   5   conversion (pandoc/LaTeX) failed
 //!   64  usage error (bad/missing flags)
 
@@ -39,7 +39,7 @@ impl std::fmt::Display for AppError {
         match self {
             AppError::Usage(m) => write!(f, "usage: {m}"),
             AppError::Input(m) => write!(f, "input: {m}"),
-            AppError::Extract(m) => write!(f, "document understanding failed: {m}"),
+            AppError::Extract(m) => write!(f, "extraction failed: {m}"),
             AppError::ToolMissing { tool, hint } => {
                 write!(f, "required tool '{tool}' not found — {hint}")
             }
