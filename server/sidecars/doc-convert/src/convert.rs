@@ -59,6 +59,15 @@ pub fn to_bytes(md: &str, to: Target, pdf_engine: PdfEngine, standalone: bool) -
     }
 }
 
+/// Pandoc input dialect for PDF-extracted text: standard Markdown with the
+/// "live passthrough" extensions disabled. Extracted prose routinely contains a
+/// stray `\n`, `$`, or `<tag>` (e.g. a book quoting `"123 Main St,\nNot…"`).
+/// With `raw_tex`/`tex_math`/`raw_html` on, pandoc treats those as live LaTeX,
+/// math, or HTML — which makes the `pdf` target fail to compile (`Undefined
+/// control sequence`) and silently *drops* the text from `html`/`docx`. Off,
+/// they become escaped literal characters, so every target round-trips the text.
+const PANDOC_FROM: &str = "markdown-raw_tex-raw_html-raw_attribute-tex_math_dollars-tex_math_single_backslash-tex_math_double_backslash";
+
 fn tmpfile(suffix: &str) -> Result<tempfile::NamedTempFile> {
     tempfile::Builder::new()
         .suffix(suffix)
@@ -74,7 +83,7 @@ pub fn normalize_for_latex(md: &str) -> String {
 fn pandoc_stdout(md: &str, to: &str, extra: &[String]) -> Result<Vec<u8>> {
     tools::require("pandoc", tools::PANDOC_HINT)?;
     let mut c = Command::new("pandoc");
-    c.arg("-f").arg("markdown").arg("-t").arg(to);
+    c.arg("-f").arg(PANDOC_FROM).arg("-t").arg(to);
     for e in extra {
         c.arg(e);
     }
@@ -100,7 +109,7 @@ fn pandoc_stdout(md: &str, to: &str, extra: &[String]) -> Result<Vec<u8>> {
 fn pandoc_file(md: &str, to: &str, output: &Path, extra: &[String]) -> Result<()> {
     tools::require("pandoc", tools::PANDOC_HINT)?;
     let mut c = Command::new("pandoc");
-    c.arg("-f").arg("markdown");
+    c.arg("-f").arg(PANDOC_FROM);
     if !to.is_empty() {
         c.arg("-t").arg(to);
     }

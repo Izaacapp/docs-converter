@@ -20,6 +20,34 @@ pub fn to_markdown(pdf: &Path) -> Result<String> {
         embed_images: false,
         ..Default::default()
     };
-    doc.to_markdown_all(&options)
-        .map_err(|e| AppError::Extract(format!("pdf_oxide markdown: {e}")))
+    let md = doc
+        .to_markdown_all(&options)
+        .map_err(|e| AppError::Extract(format!("pdf_oxide markdown: {e}")))?;
+    Ok(strip_control_chars(&md))
+}
+
+/// PDF text extraction occasionally emits stray control bytes — a BEL (0x07)
+/// from a mis-mapped glyph, C1 controls from bad decoding. They are invisible
+/// noise in the markdown and make LaTeX abort ("Text line contains an invalid
+/// character"), so drop every control char except tab / newline / return.
+fn strip_control_chars(s: &str) -> String {
+    if s.chars().all(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r')) {
+        return s.to_string();
+    }
+    s.chars()
+        .filter(|&c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_control_chars;
+
+    #[test]
+    fn drops_control_bytes_keeps_whitespace_and_text() {
+        assert_eq!(strip_control_chars("Sentence to 2a.\u{0007} The store"), "Sentence to 2a. The store");
+        assert_eq!(strip_control_chars("a\tb\nc\r\nd"), "a\tb\nc\r\nd"); // tab/nl/cr survive
+        assert_eq!(strip_control_chars("x\u{0085}y\u{0000}z"), "xyz"); // C1 NEL + NUL go
+        assert_eq!(strip_control_chars("plain café — 123"), "plain café — 123"); // unicode prose untouched
+    }
 }
