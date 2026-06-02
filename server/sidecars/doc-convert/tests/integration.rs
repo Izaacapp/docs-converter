@@ -36,7 +36,7 @@ fn nonexistent_input_exits_1() {
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("open pdf failed"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("open input failed"));
 }
 
 #[test]
@@ -157,4 +157,101 @@ fn tex_normalizes_ligatures() {
         !s.contains('\u{FB01}') && !s.contains('\u{FB02}'),
         "ligatures leaked into LaTeX output"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Any-to-any (bidirectional) — non-PDF inputs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn same_format_is_passthrough() {
+    // md -> md needs no pandoc; the bytes must round-trip exactly.
+    let src = std::env::temp_dir().join("dc_passthrough.md");
+    let body = "# Title\n\nHello **world**.\n";
+    std::fs::write(&src, body).expect("write");
+    let out = Command::new(BINARY)
+        .arg("-i")
+        .arg(&src)
+        .args(["-t", "md", "-q"])
+        .output()
+        .expect("spawn");
+    assert!(out.status.success(), "stderr {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.stdout, body.as_bytes(), "passthrough must be byte-exact");
+    let _ = std::fs::remove_file(&src);
+}
+
+#[test]
+fn unknown_extension_without_from_is_usage_error() {
+    let src = std::env::temp_dir().join("dc_unknown_ext.txt");
+    std::fs::write(&src, "plain text").expect("write");
+    let out = Command::new(BINARY)
+        .arg("-i")
+        .arg(&src)
+        .args(["-t", "md"])
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(64));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--from"));
+    let _ = std::fs::remove_file(&src);
+}
+
+#[test]
+fn md_to_html_and_html_back_to_md() {
+    if !have("pandoc") {
+        eprintln!("skip: pandoc not installed");
+        return;
+    }
+    // forward: md -> html
+    let md = std::env::temp_dir().join("dc_bidir_in.md");
+    std::fs::write(&md, "# Heading\n\nHello **world**.\n").expect("write");
+    let fwd = Command::new(BINARY)
+        .arg("-i")
+        .arg(&md)
+        .args(["-t", "html", "-q"])
+        .output()
+        .expect("spawn");
+    assert!(fwd.status.success(), "md->html stderr {}", String::from_utf8_lossy(&fwd.stderr));
+    let html = String::from_utf8_lossy(&fwd.stdout);
+    assert!(
+        html.contains("Heading") && html.contains("<strong>world</strong>"),
+        "md->html lost content: {html}"
+    );
+
+    // inverse: html -> md
+    let htmlf = std::env::temp_dir().join("dc_bidir_in.html");
+    std::fs::write(&htmlf, "<h1>Heading</h1>\n<p>Hello <strong>world</strong>.</p>\n").expect("write");
+    let back = Command::new(BINARY)
+        .arg("-i")
+        .arg(&htmlf)
+        .args(["-t", "md", "-q"])
+        .output()
+        .expect("spawn");
+    assert!(back.status.success(), "html->md stderr {}", String::from_utf8_lossy(&back.stderr));
+    let mdtext = String::from_utf8_lossy(&back.stdout);
+    assert!(
+        mdtext.contains("Heading") && mdtext.contains("**world**"),
+        "html->md lost content: {mdtext}"
+    );
+    let _ = std::fs::remove_file(&md);
+    let _ = std::fs::remove_file(&htmlf);
+}
+
+#[test]
+fn explicit_from_overrides_extension() {
+    if !have("pandoc") {
+        eprintln!("skip: pandoc not installed");
+        return;
+    }
+    // .txt is an unknown extension, but `--from md` forces the markdown reader.
+    let src = std::env::temp_dir().join("dc_forced_from.txt");
+    std::fs::write(&src, "# Forced\n\nbody\n").expect("write");
+    let out = Command::new(BINARY)
+        .arg("-i")
+        .arg(&src)
+        .args(["--from", "md", "-t", "html", "-q"])
+        .output()
+        .expect("spawn");
+    assert!(out.status.success(), "stderr {}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Forced"));
+    let _ = std::fs::remove_file(&src);
 }

@@ -1,11 +1,11 @@
-//! doc-convert — PDF -> md/html/tex/docx/pdf.
+//! doc-convert — convert between pdf/md/html/tex/docx.
 //!
 //! Two modes from one binary:
-//!   doc-convert -i in.pdf -t md -o out.md     # CLI
+//!   doc-convert -i in.docx -t pdf -o out.pdf  # CLI (any input -> any output)
 //!   doc-convert serve --port 8088             # HTTP API (deployed on the server)
 //!
-//! pdf_oxide extracts the PDF to Markdown in-process (pure CPU, no GPU); `md` is
-//! emitted directly, html/tex/docx/pdf go Markdown -> pandoc (+ LaTeX for pdf).
+//! PDF input is extracted to Markdown in-process by pdf_oxide (pure CPU, no
+//! GPU); every other input is read by pandoc directly. See `convert::run`.
 
 mod cli;
 mod client;
@@ -67,15 +67,15 @@ fn run(args: &Args) -> Result<()> {
 
     if !args.input.exists() {
         return Err(AppError::Input(format!(
-            "open pdf failed: {} does not exist",
+            "open input failed: {} does not exist",
             args.input.display()
         )));
     }
     let meta = fs::metadata(&args.input)
-        .map_err(|e| AppError::Input(format!("open pdf failed: {e}")))?;
+        .map_err(|e| AppError::Input(format!("open input failed: {e}")))?;
     if !meta.is_file() {
         return Err(AppError::Input(format!(
-            "open pdf failed: {} is not a file",
+            "open input failed: {} is not a file",
             args.input.display()
         )));
     }
@@ -86,6 +86,16 @@ fn run(args: &Args) -> Result<()> {
         )));
     }
 
+    let from = args
+        .from
+        .or_else(|| cli::Target::from_ext(&args.input))
+        .ok_or_else(|| {
+            AppError::Usage(format!(
+                "cannot determine input format of {} — pass --from",
+                args.input.display()
+            ))
+        })?;
+
     // Server mode: forward to the converter API; no local conversion.
     if let Some(api) = args
         .api_url
@@ -93,16 +103,12 @@ fn run(args: &Args) -> Result<()> {
         .or_else(|| std::env::var("CONVERTER_API_URL").ok())
         .filter(|s| !s.trim().is_empty())
     {
-        return client::forward(args, &api, &rep, start);
+        return client::forward(args, from, &api, &rep, start);
     }
 
-    rep.phase("extract", &[("engine", "pdf_oxide")]);
-    let md = extract::to_markdown(&args.input)?;
-
-    if !matches!(args.to, cli::Target::Md) {
-        rep.phase("convert", &[("target", args.to.as_str())]);
-    }
-    let bytes = convert::to_bytes(&md, args.to, args.pdf_engine, args.standalone)?;
+    rep.phase("convert", &[("from", from.as_str()), ("to", args.to.as_str())]);
+    let input = fs::read(&args.input).map_err(|e| AppError::Input(format!("read input: {e}")))?;
+    let bytes = convert::run(&input, from, args.to, args.pdf_engine, args.standalone)?;
     emit(args, &bytes)?;
 
     rep.done(bytes.len(), start.elapsed().as_millis());

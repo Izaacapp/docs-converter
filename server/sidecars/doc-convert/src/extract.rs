@@ -26,6 +26,22 @@ pub fn to_markdown(pdf: &Path) -> Result<String> {
     Ok(strip_control_chars(&md))
 }
 
+/// Extract a PDF given as raw bytes — validates the `%PDF` magic, then writes a
+/// temp file because pdf_oxide opens by path. Used by the unified `convert::run`
+/// path (CLI in-process + HTTP server).
+pub fn to_markdown_bytes(pdf: &[u8]) -> Result<String> {
+    if pdf.len() < 5 || &pdf[..4] != b"%PDF" {
+        return Err(AppError::Input("input is not a PDF".into()));
+    }
+    let tmp = tempfile::Builder::new()
+        .suffix(".pdf")
+        .tempfile()
+        .map_err(|e| AppError::Extract(format!("tempfile: {e}")))?;
+    std::fs::write(tmp.path(), pdf)
+        .map_err(|e| AppError::Extract(format!("write tmp pdf: {e}")))?;
+    to_markdown(tmp.path())
+}
+
 /// PDF text extraction occasionally emits stray control bytes — a BEL (0x07)
 /// from a mis-mapped glyph, C1 controls from bad decoding. They are invisible
 /// noise in the markdown and make LaTeX abort ("Text line contains an invalid

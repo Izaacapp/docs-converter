@@ -2,7 +2,7 @@
 //! response. No local conversion — the server does the work, so neither the
 //! client's CPU nor the GPU is touched.
 
-use crate::cli::Args;
+use crate::cli::{Args, Target};
 use crate::error::{AppError, Result};
 use crate::progress::Reporter;
 use crate::tools;
@@ -10,15 +10,23 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-pub fn forward(args: &Args, api: &str, rep: &Reporter, start: Instant) -> Result<()> {
+pub fn forward(args: &Args, from: Target, api: &str, rep: &Reporter, start: Instant) -> Result<()> {
     tools::require("curl", tools::CURL_HINT)?;
-    let url = format!("{}/convert?to={}", api.trim_end_matches('/'), args.to.as_str());
-    rep.phase("convert", &[("via", "server"), ("url", api), ("to", args.to.as_str())]);
+    let url = format!(
+        "{}/convert?from={}&to={}",
+        api.trim_end_matches('/'),
+        from.as_str(),
+        args.to.as_str()
+    );
+    rep.phase(
+        "convert",
+        &[("via", "server"), ("from", from.as_str()), ("to", args.to.as_str())],
+    );
 
     let mut c = Command::new("curl");
     c.arg("-fsS")
         .arg("-H")
-        .arg("Content-Type: application/pdf")
+        .arg("Content-Type: application/octet-stream")
         .arg("--data-binary")
         .arg(format!("@{}", args.input.display()))
         .arg(&url);

@@ -1,14 +1,15 @@
 //! Tiny HTTP service (sync, no async runtime). Runs the converter on the
 //! server so neither the client's CPU nor the GPU is touched.
 //!
-//!   GET  /health             -> "ok"
-//!   POST /convert?to=md      body = raw PDF bytes -> converted bytes
+//!   GET  /health                  -> "ok"
+//!   POST /convert?from=pdf&to=md  body = raw document bytes -> converted bytes
 //!
-//! `to` ∈ md|html|tex|docx|pdf (default md). Errors -> 4xx/5xx with a message.
+//! `from` ∈ pdf|md|html|tex|docx (sniffed from the body if omitted).
+//! `to`   ∈ md|html|tex|docx|pdf (default md). Errors -> 4xx/5xx with a message.
 
 use crate::cli::{PdfEngine, Target};
+use crate::convert;
 use crate::error::AppError;
-use crate::{convert, extract};
 use std::process::ExitCode;
 use tiny_http::{Method, Response, Server};
 
@@ -20,7 +21,9 @@ pub fn run(port: u16) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    eprintln!("doc-convert serving on http://0.0.0.0:{port}  (GET /health, POST /convert?to=md)");
+    eprintln!(
+        "doc-convert serving on http://0.0.0.0:{port}  (GET /health, POST /convert?from=&to=)"
+    );
 
     for mut req in server.incoming_requests() {
         let method = req.method().clone();
@@ -31,18 +34,25 @@ pub fn run(port: u16) -> ExitCode {
             continue;
         }
         if method == Method::Post && url.starts_with("/convert") {
-            let to = parse_to(&url);
+            let to = parse_fmt(&url, "to").unwrap_or(Target::Md);
             let mut body = Vec::new();
             if req.as_reader().read_to_end(&mut body).is_err() {
                 let _ = req.respond(Response::from_string("read error").with_status_code(400));
                 continue;
             }
-            match handle(&body, to) {
+            // The desktop app always sends `from`; sniff keeps raw curl handy.
+            let from = parse_fmt(&url, "from").unwrap_or_else(|| sniff(&body));
+            // Tectonic on the server (lightweight, no full TeX Live install).
+            match convert::run(&body, from, to, PdfEngine::Tectonic, false) {
                 Ok(bytes) => {
                     let _ = req.respond(Response::from_data(bytes));
                 }
                 Err(e) => {
-                    let code = if matches!(e, AppError::Input(_)) { 400 } else { 500 };
+                    let code = if matches!(e, AppError::Input(_) | AppError::Usage(_)) {
+                        400
+                    } else {
+                        500
+                    };
                     let _ = req.respond(
                         Response::from_string(format!("doc-convert: {e}")).with_status_code(code),
                     );
@@ -55,32 +65,43 @@ pub fn run(port: u16) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn parse_to(url: &str) -> Target {
+/// Parse a `?from=`/`?to=` format off the query string.
+fn parse_fmt(url: &str, key: &str) -> Option<Target> {
+    let prefix = format!("{key}=");
     url.split('?')
-        .nth(1)
-        .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("to=")))
+        .nth(1)?
+        .split('&')
+        .find_map(|kv| kv.strip_prefix(&prefix))
         .and_then(|v| match v {
-            "md" => Some(Target::Md),
-            "html" => Some(Target::Html),
-            "tex" => Some(Target::Tex),
+            "md" | "markdown" => Some(Target::Md),
+            "html" | "htm" => Some(Target::Html),
+            "tex" | "latex" => Some(Target::Tex),
             "docx" => Some(Target::Docx),
             "pdf" => Some(Target::Pdf),
             _ => None,
         })
-        .unwrap_or(Target::Md)
 }
 
-fn handle(pdf_bytes: &[u8], to: Target) -> crate::error::Result<Vec<u8>> {
-    if pdf_bytes.len() < 5 || &pdf_bytes[..4] != b"%PDF" {
-        return Err(AppError::Input("request body is not a PDF".into()));
+/// Best-effort input detection when `?from=` is omitted.
+fn sniff(body: &[u8]) -> Target {
+    if body.starts_with(b"%PDF") {
+        return Target::Pdf;
     }
-    let tmp = tempfile::Builder::new()
-        .suffix(".pdf")
-        .tempfile()
-        .map_err(|e| AppError::Extract(format!("tempfile: {e}")))?;
-    std::fs::write(tmp.path(), pdf_bytes)
-        .map_err(|e| AppError::Extract(format!("write tmp pdf: {e}")))?;
-    let md = extract::to_markdown(tmp.path())?;
-    // Tectonic on the server (lightweight, no full TeX Live install needed).
-    convert::to_bytes(&md, to, PdfEngine::Tectonic, false)
+    if body.starts_with(b"PK\x03\x04") {
+        return Target::Docx; // zip container — assume .docx
+    }
+    let head = String::from_utf8_lossy(&body[..body.len().min(2048)]).to_lowercase();
+    let trimmed = head.trim_start();
+    if trimmed.starts_with("<!doctype")
+        || trimmed.starts_with("<html")
+        || head.contains("<body")
+        || head.contains("<div")
+        || head.contains("<p>")
+    {
+        Target::Html
+    } else if head.contains("\\documentclass") || head.contains("\\begin{document}") {
+        Target::Tex
+    } else {
+        Target::Md
+    }
 }
