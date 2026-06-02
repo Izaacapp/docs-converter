@@ -4,8 +4,9 @@
   interface Props {
     format: Format;
     busy?: boolean;
+    label?: string;
   }
-  let { format = $bindable(), busy = false }: Props = $props();
+  let { format = $bindable(), busy = false, label = "Format" }: Props = $props();
 
   const FORMATS: { v: Format; label: string }[] = [
     { v: "md", label: "Markdown" },
@@ -17,7 +18,7 @@
 </script>
 
 <label>
-  Format
+  {label}
   <select bind:value={format} disabled={busy}>
     {#each FORMATS as f}<option value={f.v}>{f.label}</option>{/each}
   </select>
